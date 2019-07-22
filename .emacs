@@ -1,7 +1,3 @@
-;; Added by Package.el.  This must come before configurations of
-;; installed packages.  Don't delete this line.  If you don't want it,
-;; just comment it out by adding a semicolon to the start of the line.
-;; You may delete these explanatory comments.
 (require 'package)
 (let* ((no-ssl (and (memq system-type '(windows-nt ms-dos))
                     (not (gnutls-available-p))))
@@ -21,15 +17,10 @@ There are two things you can do about this warning:
     (add-to-list 'package-archives (cons "gnu" (concat proto "://elpa.gnu.org/packages/")))))
 (package-initialize)
 
-;; Packaging (brought to you by use-package)
-(require' package)
-(setq package-enable-at-startup nil)
-(setq package-archives '(("gnu"          . "https://elpa.gnu.org/packages/")
-                         ("marmalade"    . "https://marmalade-repo.org/packages/")
-                         ("melpa"        . "https://melpa.org/packages/")
-                         ("melpa-stable" . "https://stable.melpa.org/packages/")))
-(package-initialize)
-
+(require 'package)
+(add-to-list 'package-archives
+             '("melpa-stable" . "https://stable.melpa.org/packages/"))
+ 
 (unless (package-installed-p 'use-package)
   (package-refresh-contents)
   (package-install 'use-package))
@@ -38,18 +29,7 @@ There are two things you can do about this warning:
   (require 'use-package))
 
 ;; ***************************** EMACS CONFIG ********************************************
-
-;; image settings
-;; use the below line to show all the images. you can use C-c C-x C-v to toggle the image
-;; (setq org-startup-with-inline-images t)
-;; use below 2 lines to set all the images dimensions to deafult to 400
-;; (setq org-image-actual-width nil)
-;; (setq org-image-actual-width 400)
-
 ;; set the font sizs
-;; default Latin font (e.g. Consolas)
-(set-face-attribute 'default nil :family "Consolas")
-
 ;; default font size (point * 10)
 ;;
 ;; WARNING!  Depending on the default font,
@@ -75,7 +55,7 @@ There are two things you can do about this warning:
 (set-frame-parameter nil 'fullscreen 'fullboth)
 
 ;; start emacs in a default directory
-(setq default-directory "/Users/vmarni/Documents/notes/vmarni/")
+(setq default-directory "~/Documents/notes/vmarni/")
 (add-to-list 'comint-output-filter-functions 'ansi-color-process-output)
 
 ;; open default file in emacs
@@ -106,10 +86,10 @@ There are two things you can do about this warning:
 (global-linum-mode t) 
 
 ;; ***************************** ORG MODE CONFIG ********************************************
-(require 'org)
-(define-key global-map "\C-cl" 'org-store-link)
-(define-key global-map "\C-ca" 'org-agenda)
-(setq org-log-done t)
+;; (require 'org)
+;; (define-key global-map "\C-cl" 'org-store-link)
+;; (define-key global-map "\C-ca" 'org-agenda)
+;; (setq org-log-done t)
 
 ;; TODO customization
 (use-package org
@@ -133,11 +113,20 @@ There are two things you can do about this warning:
 (load-theme 'zenburn t)
 
 ;; setting org-agenda-files
-(setq org-agenda-files (list "/Users/vmarni/Documents/notes/vmarni/ana-app.org" "/Users/vmarni/Documents/notes/vmarni/daily-logs.org"))
+(setq org-agenda-files (list "~/Documents/notes/vmarni/ana-app.org" "~/Documents/notes/vmarni/daily-logs.org"))
 
 ;; clocking config
 (setq org-clock-persist 'history)
 (org-clock-persistence-insinuate)
+
+;; image settings
+;; use the below line to show all the images. you can use C-c C-x C-v to toggle the image
+;; (setq org-startup-with-inline-images t)
+;; use below 2 lines to set all the images dimensions to deafult to 400
+;; (setq org-image-actual-width nil)
+;; (setq org-image-actual-width 400)
+
+
 
 ;; ***************************** EL PY CONFIG ********************************************
 
