@@ -30,6 +30,7 @@ There are two things you can do about this warning:
 
 ;; ***************************** EMACS CONFIG ********************************************
 ;; set the font sizs
+(set-face-attribute 'default nil :family "Monaco")
 ;; default font size (point * 10)
 ;;
 ;; WARNING!  Depending on the default font,
@@ -55,7 +56,7 @@ There are two things you can do about this warning:
 (set-frame-parameter nil 'fullscreen 'fullboth)
 
 ;; start emacs in a default directory
-(setq default-directory "~/Documents/notes/vmarni/")
+;; (setq default-directory "~/Documents/notes/vmarni/")
 (add-to-list 'comint-output-filter-functions 'ansi-color-process-output)
 
 ;; open default file in emacs
@@ -68,7 +69,7 @@ There are two things you can do about this warning:
  ;; If there is more than one, they won't work right.
  '(package-selected-packages
    (quote
-    (eimp anaconda-mode sphinx-doc undo-tree zenburn-theme use-package))))
+    (gnuplot-mode gnuplot flx-ido projectile groovy-mode htmlize eimp anaconda-mode sphinx-doc undo-tree zenburn-theme use-package))))
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.
@@ -113,7 +114,7 @@ There are two things you can do about this warning:
 (load-theme 'zenburn t)
 
 ;; setting org-agenda-files
-(setq org-agenda-files (list "~/Documents/notes/vmarni/ana-app.org" "~/Documents/notes/vmarni/daily-logs.org"))
+;; (setq org-agenda-files (list "~/Documents/notes/vmarni/ana-app.org" "~/Documents/notes/vmarni/daily-logs.org"))
 
 ;; clocking config
 (setq org-clock-persist 'history)
@@ -126,56 +127,12 @@ There are two things you can do about this warning:
 ;; (setq org-image-actual-width nil)
 ;; (setq org-image-actual-width 400)
 
+;; plotting in org-mode using org-plot shortcut
+(local-set-key "\M-\C-g" 'org-plot/gnuplot)
 
-
-;; ***************************** EL PY CONFIG ********************************************
-
-;; (use-package elpy
-;;   :ensure t
-;;   :init
-;;   (elpy-enable))
-
-;; ;; elpy auto-enable
-;; (elpy-enable)
-
-;; (defvar myPackages
-;;   '(better-defaults
-;;     elpy ;; add the elpy package
-;;     ein ;; add the ein package (Emacs ipython notebook)
-;;     flycheck ;; add flycheck package for real time syntax checking
-;;     material-theme
-;;     py-autopep8 ;; add the autopep8 package. on save the file is automatically formatted with pep8 standards
-;;     ))
-
-;; (mapc #'(lambda (package)
-;;     (unless (package-installed-p package)
-;;       (package-install package)))
-;;       myPackages)
-
-;; (elpy-enable)
-
-;; ;; ipython setup
-;; (setq python-shell-interpreter "jupyter"
-;;       python-shell-interpreter-args "console --simple-prompt"
-;;       python-shell-prompt-detect-failure-warning nil)
-;; (add-to-list 'python-shell-completion-native-disabled-interpreters
-;;              "jupyter")
-
-;; ;; use flycheck not flymake with elpy
-;; (when (require 'flycheck nil t)
-;;   (setq elpy-modules (delq 'elpy-module-flymake elpy-modules))
-;;   (add-hook 'elpy-mode-hook 'flycheck-mode))
-
-;; ;; enable autopep8 formatting on save
-;; (require 'py-autopep8)
-;; (add-hook 'elpy-mode-hook 'py-autopep8-enable-on-save)
-
-;; ;; alias for pyvenv-workon
-;; (defalias 'workon 'pyvenv-workon)
-
-;; ;; sphinx-doc settings
-;; (add-hook 'python-mode-hook (lambda ()
-;;                             (require 'sphinx-doc)
-;;                             (sphinx-doc-mode t)))
-
-;; ***************************** JEDI PY CONFIG ********************************************
+;; projectile for managing projects
+(require 'projectile)
+(define-key projectile-mode-map (kbd "s-p") 'projectile-command-map)
+(define-key projectile-mode-map (kbd "C-c p") 'projectile-command-map)
+(projectile-mode +1)
+(setq projectile-project-search-path '("~/PycharmProjects/" "~/Documents/notes/vmarni/"))
