@@ -121,7 +121,6 @@ The cloud formation for the gremlin server there has some issues. Follow the ste
      - activating it has no impact on the existing data.
      - these are only applied during the insertion process, therefore reading data is also not affected.
 ** Janus Graph Query Language - GREMLIN
-*** 
 ** Configured Graph Factory. [[https://docs.janusgraph.org/latest/configuredgraphfactory.html#overview][chapter 9]]
 
 *** how is it similar & different to janus graph factory?
@@ -170,10 +169,10 @@ graph.graphname=ConfigurationManagementGraph
 storage.hostname=127.0.0.1
 #+END_SRC
 
-*Recommend:* Clone the janus-ikg git repo and replace the files in the respective folders of the janus-graph with the files in the repo
+*IMP:*
 - the file at //scripts/empty-sample.groovy// binds the traversal objects to the global variables so they are available when someone connects to the gremlin server remotely. 
   - This is one file that should not be replaced before we actually configured the custom graph and added the schema.
-    - use the file scripts/ikg-setup.groovy to configure and setup the graph with schema
+    - use the file scripts/xxx-setup.groovy to configure and setup the graph with schema
 - However the graph has defined prior to starting the server with the file from the repo as it also contains the g traversal which is a binding to the configured-graph.
 - in the empty-sample.groovy file please the line to the list trav: ConfiguredGraphFactory.open('graphname')
 
@@ -283,35 +282,92 @@ Remove index consists of 2 stages.
  - others
    - [[https://kgoralski.gitbook.io/wiki/janusgraph]]
 
-* Advantages
-** Advantages of using graph databases for data management
-- Graph databases have superior performance when querying connected data (Big or Small). 
-- Graph databases can be updated in real time and support queries simultaneously.
-- A draw back of existing system is that any query will touch the majority of the system, while a graph database will only touch the relevant data.
-- It's easy to find hubs of influence in a graph database. For example: we can use page rank and find concentration points
-** Advantages for visulaizations
-- we can integrate the graph db with 3rd party tools to make life easier for an analyst.
-- We can give the same to the sales people to generate custom graphs
 
-* notes
 
-** Gremlin
+* kubernetes
 
-| gremlin                                                           | RDF                                                                                      |
-|-------------------------------------------------------------------+------------------------------------------------------------------------------------------|
-| gremlin is a property graph model                                 | resource description framework. the data model is a little different (not going into it) |
-| from apache                                                       | from w3c                                                                                 |
-| real world and much better suited for things like OLTP queries    | very well suited for datamining                                                          |
-| functional and traversive language (also can do pattern matching) | pattern matching language                                                                |
-| allows you to design databases and define processes               |                                                                                          |
-|                                                                   |                                                                                          |
+** why we need kubernetes and what it can do?
+- service discovery and load balancing
+- storage orchestration
+- automated rollouts and rollbacks
+- automatic bin packing
+- self-healing
+- secrets ansd configuration management
 
-** what is graph  and how to represent it in apache tinker-pop?
-- entities are which are real type (vertices)
-- Add label to entities
-- graph.addVertex("movie") to add vertex. graph is an object and addVertex is an opensource api
-- edges are relationships betweeen vertices and are always directed and always have labels
+*** what it is not?
+- it is not a Paas solution. It works at a container level rather than hardware level.
+- doesnot limit the types of applications. supports extremely diverse set of work loads. if an application can run of container it will run great on kubernetes
+- doesnot provide application level services, such as middleware (messaging buses), dataprocessing framework (spark), databases, caches, cluster storage system as built in applications. Such applications can run on kubernetes and/or can be accessed by applications running on kubernetes through protable mechanisms such as the open service broker.
+- doesnot dictate logging, monitoring or alerting solutions. it provides some applications as proof of concept and mechanisms to collect and export metrics
+- etc etc
+- additionally its not a mere orchestration system. it infact elimnates the need for orchestration.
 
-*** example:
+/orchestration/ is technically execution of an workflow. A-->B-->C. In constract kubernetes is a set of independent composable processes that drive the current state towards the desired state. should not matter how you get from A-->C.
 
-** relationships
+** Components
+
+*** Master components
+
+- Provides the clusters control pane. Makes global decisions about the cluster and they detect and respond to the cluster to events.
+- master components can be run independently on any machine in the cluster. however for simplcity set up scripts typically start all master components on the same machine and donot run user containers on the same machine.
+
+**** Kube-api server
+
+- component on the master that exposes that kubernetes api. it front-end of the kubernetes control plane.
+- it is designed to scale horizontally that is it scales by deploying more instances.
+**** etcd
+- consistent and highly available key-value store used as kubernetes backing for all cluster data.
+**** kube-scheduler
+- component on the master that watches newly created pods that have no node assigned, and selects a node for them to run on.
+**** kube-control-manager
+- component on the master that runs controllers.
+- logically each controller is a separate process, but to reduce complexity they are all compiled into a single binary and run in a single process.
+- These controllers include.
+  - Node controller: Responsible for noticing and responding when nodes go down.
+  - Replication controller: Responsible for maintaining the correct number of pods for every replication controller object in the system.
+  - Endpoint controller: populates the endpoint objects. (that is joins service and pods)
+  - Service account & token controllers: create default accounts and API access tokens for new namespaces.
+**** TODO cloud-control-manager
+*** Node components
+Node components run on node, maintaining running pods and providing the kubernetes runtime env.
+**** kubelet
+An agent that runs on each node in a cluster. it make sures that containers are running in a pod. A kublet takes a set of PodSpecs that are provided through various mechanisms and ensures that containers described in those PodSpecs are running and healthy. The kubelet doesn't manage containers which are not created by kebernetes.
+**** kube-proxy
+kube-proxy is a network proxy that runs on each node in your cluster, implementing part of the kubernetes service concept. Kube proxy maintains the network rules on nodes. These rules allow network communication to your pods from network sessions inside or outside your cluster.
+**** container-runtime
+Container runtime is a software that is responsible for running containers. Kubernetes supports several container runtimes
+- Docker
+- containerd
+- cri-o
+- rklet
+- any implementation of the kubernetes cri
+*** Add ons
+Addons use kubernetes resources (DaemonSet, Deployment, etc) to implement the cluster features. Because these addons are cluster-level features namespaced resources for addons belong within the kube-system namespace. Some of them are below.
+**** DNS
+while all other addons are not strictly required, all kuberenetes clusters should have a cluster DNS. Cluster DNS is DNS server in addition to other DNS servers in your environment which servers dns records for kubernetes services. Containers started by kuberenets automatically include Cluster DNS in their DNS searches.
+**** Web UI
+Dashboard is a general purpose, web based UI for kubernetes clusters. It allows users to manage and troubleshoot applications running in the cluster as well as the cluster itself.
+**** Container Resource Monitoring
+CRM records generic time-series metrics about the containers and provids a UI for browsing data.
+**** Cluster Level Logging
+A CLL is responsible for saving container logs to a central log stor with search/browsing feature.
+*** Add-ons
+
+** Nodes
+
+A node is a worker machine in kubernetes previously know as a minion. A node may be a VM or physical machine, depending on the cluster. Each nodes contains the services to run pods and is managed by the master components. The services on a node include the container runtime, kubelet and kubelet proxy. 
+*** Node Status
+contains the following information.
+- Addresses
+  - Hostname
+  - external ip
+  - internal ip
+- conditions
+  - OutOfDisk
+  - Ready
+  - MemoryPressure
+  - PIDPressure
+  - DiskPressure
+  - NetworkUnAvailable
+- capacity and allocatable
+- info
