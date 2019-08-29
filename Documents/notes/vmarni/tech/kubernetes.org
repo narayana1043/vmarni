@@ -308,7 +308,6 @@ There are a number of solutions for configuring private registries. Here are som
 - Generate registry credential for each tenant, put into secret and populate secret to each tenant namespace.
 - The tenant adds the secret to imagePullSecerts of each namespace.
 
-
 ** Container Runtime Variables
 
 *** Container Env
@@ -340,3 +339,112 @@ Ther are 2 hoks that are exposed to containers
 Containers can access a hook by implementing and registering a handler for that hook. There are 2 types of hook handlers that can be implemented for containers.
 - Exec: executes a specific command, such as pre-stop.sh, inside the cgroups and namespaces of the contianer.
 - HTTP: Executes an HTTP request against a specific endpoint on the container.
+
+* Workloads
+
+** Pods
+
+*** Pod Overview
+
+**** understanding
+- A pod is a basic unit of kubernetes application - the smallest and simplest unit in kuberenetes object model that you create or deploy. A pod represents process running in your cluster.
+- It encapsulates an applications container or containers, storage resources, unique network IP and options that govern how the containers should run. A pod represents a unit of deployment: single instance of an application in kubernetes, which might contain a single container or small number of containers that are tightly copuled and that share resources.
+  - Docker is the most famous container runtime in kuberenets Pod
+- Pods in kuberenets cluster can be used in 2 main ways
+  - Pods that run a single container.
+    - this is the most common use case.
+    - Here Pods act like a wrapper around a container and kubernetes manages pods rather than containers directly
+  - Pods that run multiple containers that need to work together.
+    - The co-located containers might form a single cohesive unit of service-one container serving files from a shared volume to the public, while a separate "sidecar" container refreshes or updates those files. The pod wraps these containers and storage resources together as a single manageable entity.
+  - Each pod is meant to run a single instance of a given application. If you want to scale your application horizontally (eg., run multiple instances), you should use multiple Posaa, one for each instance. In kuberentes this is generally referred to replication. Replicatd Pods are usually created and managed as a group by an abstraction called a controller.
+
+**** how pods manage multiple containers
+Pods are designed to support multiple cooperating processes (as containers) that form a cohesive unit of service. The containers in a Pod are automatically co-located and con-scheduled on the same physical or virtual machine in the cluster. The containers can share resources and dependencies, communicate with one andother when and how they are terminated. (these sort of groupings are advanced use cases).
+
+Some pods have init containers as well as app containers. Init containers run and complete before the app containers are started.
+
+Pods provide 2 kinds of shared resources for their constituent containers:
+- networking: each pod is assigned a unique IP address. Every container in a Pod shares the network namespace and the network ports. Containers in the pod can communicate with one another using localhost.
+- storage: A pod can specify a set of shared storage volumes. All containers in the Pod  can access the shared columes, allowing those containers to share data. Volumes also allow persistent data in a pod to survive in case of the containers with needs to be restarted.
+
+**** Working with Pods
+You'll rarely create individual pods directly in kuberentes-even singleton pods. This is because pods are designed as relatively ephemeral, disposable entities. When a Pod gets created (directly by you or indirectly by controller), it is scheduled to run on a Node in your cluster. The pod remains on that node until the process is terminated, the pod object is deleted, the pod is evicted for lack of resources or the node fails.
+
+Pods do not, by themeseleves, self-heal. If a pod is scheduled to a Node that fails or if the scheduling operation itself fails the Pod is deleted; likewise, a Pod won't survive an eviction due to a lack of resources or Node maintenance. Kubernetes uses a higher-level abstraction called controller, that handles the work of managing the relatively disposable Pod instances. Thus, while it is possible to use Pod directly, it's far more common in kuberenetes to manage your pods using a controller.
+
+**** Pods and controllers
+A controller can create and manage multiple Pods for you, handling replication and rollout and providing seld-healing capabilities at cluster scope. For example, if a Node fails the controller might automatically replace the Pod by scheduling an identical repalcement on different Node.
+
+**** Pod templates
+Pod templates are pod specifications which are included in other objects, such as replication controllers, Jobs and daemon sets. Controllers use Pod templates to make actual pods. Rather than specifying the current desired state of all replicas, pod templates are like cookie cutters. Once a cookie has been cut, the cookie has no relationship to the cutter. There is no "quantum entanglement". Subsequent changes to the template or even switching to a new template has no direct effect on the pods already created. Similarly, pods created by a replication controller may subsequently be updated directly. This is in delibrate contrast to Pods, which do specify the current desired state of all containers belonging to the Pod. This approach radically simplifies system semantics and increases the flexibility of the primitive.
+
+** Motivation for Pods
+
+*** Management
+Pods are a model of the pattern of multiple cooperating processes which form a cohesive unit of service. They simplify application deployment and management by providing higher-level abstraction than the set of their constituent applications. They help in 
+- horizontal scaling
+- replication
+- colocation
+
+The below are automatically handled for a pod
+- shared fate
+- coordinated replication
+- resource sharing
+- dependency management
+
+*** Use of pods
+
+Pods can be used to host vertically integrated application stacks (eg. LAMP), but their primary motivation is to support co-located, co-managed helper programs, such as:
+- content management systems, file and data loaders, local cache managers etc.
+- log, checkpoint backup, compression, rotation, snapshotting etc.
+- data change watchers, log tailers, logging and monitoring adapters, event publishers etc.
+- proxies bridges and adapters
+- controllers, managers, configurators and updaters
+
+In genersal individual pods are not intended to run multiple instances of the same application.
+
+*** Alternatives considered
+why not just run multiple programs in a single (docker) container?
+- Transparency. Making the containers within the Pod visible to the infrastructure enables that infrastructure to provide services to those containers. such as process management and resource monitoring.
+- Decoupling softeare dependencies. The individual containers may be versioned, rebuilt and redeployed independently. Kuberenetes may even supportlive updates od individual containers someday.
+- ease of use. users don't need to run their own process managers, worry about signal and exit=code propagation, etc.
+- Efficiency. Because the infrastructure takes on more responsibility, containers can be lighter weight.
+
+Why not support affinity-based co-scheduling of containers?
+- That approach would provide co-location, but would not provide most of the benefits of Pods, such as resource sharing, IPC, guaranteed fate sharing and simplified management.
+
+*** Durability of pods (or lack thereof)
+- Pods aren't intended to be treated as durable entities. They won't survive scheduling failures, node failures or other evictions, such as due to lack of resources, or in the case of node maintainece.
+- In general, users should not create pods directly. They should almost always use controllers even for singletons. Controllers provide self-healing with a cluster scope, as well as replication and rollout management.
+- Pod is exposed as a primitive in order to facilitate.
+  - scheduler and controller pluggability
+  - suppoet for pod-level operations without the need to "proxy" them via controller APIs
+  - decoupling of Pod lifetime from controller lifetime, such as bootstrapping
+  - decoupling of controllers and services - the endpoint controller just watches Pods
+  - clean composition of Kubelet-level functionality with cluster-level functionality - kubelete is effecitively the "pod controller"
+  - high availability applications which will expect pods to replaced in advance of their terimination and certainly in adavance of deletion, such as in the case of planned evictions or image prefecting.
+
+*** Termination of Pods
+
+Because Pods represent running processes on nodes in the cluster, it is important to allow those processes to gracefully terminate when they are no longer needed (vs being violently killed with KILL signal and having no chance to clean up). Users should be able to request deletion and know when processes terminate, but also be able to to ensure that deletes eventually complete. When a user requessts deletion of a Pod, the system records the intended grace period before the Pod is allowed to be forcefully killed and a TERM signal is sent to the main  process in each container. Once the grace period has expired, the KILL singal is sent to these processes and the Pod is then deleted from the API server. If the kubelet or the container manager is restarted while waiting for processes to terminate the termination will be retried with the full grace period.
+
+An example flow:
+- User sends command to delete Pod, with default grace period (30s)
+- The Pod in the API srever is updated with the time beyond which the Pod is considered "dead" along with the grace period.
+- Pod shows up "Terminating" when listed in client commands
+  - (simultaneous with 3) When the kubelet sees that a pod has been marked as terminating because the time in the api server is set, it begins the pod shutdown process.
+    - if one of the pods containers has defined a preStop hook, it is invoked inside of the container. If the preStop hook is still running after the grace period expires, step 2 is then invoked with a small(2 second) extended grace period.
+    - the container is sent the TERM signal. Note that not all containers in the Pod will receive the TERM signal at the same time and may each require a preStop hook if the order in which they shutdown matters.
+  - (simultaneous with 3) Pod is removed from endpoints list for service, and are no longer considered part of the set of running pods for replication controllers. Pods that shutdown slowly cannot continue to serve traffic as load balancers (like the service proxy) remove them from their rotations.
+- When the grace period expires, any processes still running in the Pod are killed with SIGKILL
+- The kubelet will finish deleting the Pod on the API server by setting grace period 0 (immediate deletion). The pod disappears from the API and is no longer visible from the client.
+
+**** Force deletion of Pods
+It is the deletion of the Pod from the cluster state and etcd immediately. When force deletion is performed the API server does not wait for confirmation from the kubelete that the pod has been terminated on the node it is running on. It removes the Pod in the API immediately so a new Pod can be created with the same name. On the node, Pods that are set to terminate immediately will still be given a small grace period before force killed.
+
+Force deletions can be potentially dangerous for some pods and should be perfromed with caution.
+
+*** Privileged mode for Pod containers
+- useful for containers that want to use linux capabilities like manipulating the netowrk stack and accessing devices.
+- Process with in the containers get the same privileges that are available to processes outside a container.
+- with this is mode it should be easier to write to network and volume plugins as separate pods that don't need to be compiled into the kubelet.

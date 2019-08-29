@@ -336,6 +336,19 @@ There are 2 ways
 
 **** client mode
 
-In client mode the driver runs on the l
+- In client mode the driver runs on the client itself.
+- The client can be your laptop.
+- There are rest of thing like application master, containers, node managers, resource managers are still exactly as discussed above.
+- However if you call an collect action on an RDD, the items inside the RDD will be shift to the driver over the network and you will be able to see the results in the shell. Not good if you collect the whole dataset.
+- In this case the only reason the application master exsits is because in YARN that is the only way you can get containers to run executors. In this case the executors running in the containers are in direct communication in the driver.
+- This is similar to the standalone mode where the worker start the containers, but here the node manager starts the containers and then starts the executors within it. But actually it is the application master that negotiates with the resource manager that it wants two containers to run executors.
+- RM tells Application Master where the containers can be scheduled. The resource manager is basically doing what the spark master is doing in the standalone mode.
+- However now there is one important schedular inside the spark driver which decides where the actual tasks will be scheduled. The driver schedular is going to aim for placing the tasks whereever the data is or closer to the data. This is different from the RM schdeular.
 
 **** cluster mode
+
+** Issues
+
+*** Data locality
+
+If you have a 100 node cluster start 100 executors so that you won't run into data locality issues. If you start less then data has to be over the network which can be a pain.
