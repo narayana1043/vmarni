@@ -344,11 +344,135 @@ There are 2 ways
 - This is similar to the standalone mode where the worker start the containers, but here the node manager starts the containers and then starts the executors within it. But actually it is the application master that negotiates with the resource manager that it wants two containers to run executors.
 - RM tells Application Master where the containers can be scheduled. The resource manager is basically doing what the spark master is doing in the standalone mode.
 - However now there is one important schedular inside the spark driver which decides where the actual tasks will be scheduled. The driver schedular is going to aim for placing the tasks whereever the data is or closer to the data. This is different from the RM schdeular.
+- Another interesting is to thing if you have n node cluster and you start less than n executors then problem is the hdfs blocks that only might exsit on the nodes in which the executors are not running might have to moved over network to another executor.
+  - Better start n executors
+  - if you start less than n executors, check for ways to start the executors where you can get more data locality.
 
 **** cluster mode
+- In client mode, if you remove the laptop from the cluster and go home, the driver is disconnecteed from the cluster which will terminate the cluster. So if you want to submit an application and walk away and see the results later (no interactive work) use cluster mode.
+- In cluster mode the client submits the application including the python script or the jar file and the driver runs inside the spark application master itself, now we might not do something like collect but might save the results to the hdfs or somewhere.
+
+*** Intersting settings in YARN
+- --num-executors: controls how many executors will be allocated
+  - cannot be done in stanalone mode
+- --executor-memory: RAM for each executor
+- --executor-cores: CPU cores for each executor
+
+*** Dynamic Allocation:
+Gives the ability to relatively increase or decrease the number of executors live in an application
+- spark.dynamicAllocation.enabled
+  - turns on the feature dynamic allocation
+- spark.dynamicAllocation.minExecutors
+  - starts this minimum number of executors
+- spark.dynamicAllocation.maxExecutors
+  - 
+- spark.dynamicAllocation.sustainedSchedulerBacklogTimeout
+  - after the starting the min number of executors and after this timeout spark checks if there are tasks that are not scheduled or waiting to be scheduled. If there are such tasks then few new executors are started if the current number of running executors is less then the max numbers of executors scheduled.
+    - 10 -> 20
+    - this timeout is only checked once
+- spark.dynamicAllocaton.schedulerBacklogTimeout
+  - spark checks for backlog again after this timeout and increases the executors exponentially.
+  - 10 -> 20 -> 50 -> 100
+  - this timeout is checked over and over again and increase the executors until the max is reached
+- spark.dynamicAllocation.executorIdleTimeout
+  - this timeout is to check if there are idle resources. if in the currently running executors if no task is scheduled spark starts to terminate the executors after this timeout hits until the min number of executors for the application is reached. 
+
+This is how dynamic allocation works in YARN. There is something similar in mesos but a little different. This cannot be done in standalone mode
+
+** Gist on resource schedular modes
+
+|            | spark central master | who starts executors | tasks run in |
+|------------+----------------------+----------------------+--------------|
+| local      | none                 | human                | executor     |
+| standalone | standalone master    | worker jvm           | executor     |
+| YARN       | YARN App master      | Node Manager         | executor     |
+| Mesos      | Mesos Master         | Mesos Slave          | executor     |
+
+- the tasks are always are run in executors
+- who starts the executors is different depending on the resource managers
+- the spark central master is the guy decides where the executors will run. There are different deamons depending on the mode which decide where the executors will start. 
+
+** Deploying an APP to the cluster
+
+- Keep the code in the local and develop everything in local mode.
+- Use spark submit to deploy the code in a cluster.
+
+| Mode       | Value              | Explanation                                                                                                                                                 |
+|------------+--------------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| standalone | spark://host:port  | connect to a spark standalone master at the specified port (default port is 7707)                                                                           |
+| mesos      | messos://host:port | connect to a mesos cluster master at the specified port. (default port is 5050)                                                                             |
+| YARN       | yarn               | indicates submission to yarn clinet. whe running on YARN you'll need to export HADOOP_CONF_DIR to point the location of your Hadoop configuration directory |
+| local      | local              | Run in local mode with single core                                                                                                                          |
+| local      | local[N]           | Run in local mode with N cores                                                                                                                              |
+| local      | local[*]           | Run in local mode with as many cores s the machine has                                                                                                      |
+
+There are some other settings can be set like executor memory, number of executors etc. please refer to the docs
 
 ** Issues
 
 *** Data locality
 
 If you have a 100 node cluster start 100 executors so that you won't run into data locality issues. If you start less then data has to be over the network which can be a pain.
+* General Rules of Thumb
+** Configurations
+- Recommended to use at most only 75% of a machine's memory for spark.
+- Minimum executor heap size should be 8GB
+  - giving it only a GB of memory you will run into old memory issues.
+- Max executor heap size depends ... may be 40GB, this depends on how the JVMs GC is doing. Increasing this greater than 40GB will introduce GC issues. The GC will take longer than usual resulting in slowing down the jobs.
+  - if usiing properitory jvms that can handle 100's of GB of memory this is fine may be.
+  - In general if using open JDK or some other opensource jvms then likely better keep this under 40GB.
+** Memory
+- Memory usage is greatly affected by the storage level and serelization formats.
+  - memory usage is greatly affected by how you store the rdds in memory.
+  - cache is memeory only but persist you can pass in arguments.
+    - RDD.cache() == RDD.persist(options)
+      - MEMORY_ONLY (deserialized in memory, can be serailized)
+      - DISK_ONLY (will always be serialized) the disk is SSD
+      - MEMORY_AND_DISK (deserialized in memory and serialized in disk)
+      - MEMORY_AND_DISK (default serialized in memory and disk)
+      - MEMORY_ONLY_X (stores x replicas of the RDD in memory).
+      - OFF_HEAP
+    - If using serialization use a fast serialization (kyro). The default java serialization is slow.
+    - The serialization might slow the app down a little bit because it involves the cost of serialization and deserialization. However if serialized the cost of GC reduced because many individual buffers are stored as a single java object.
+    - Anything the moves to disk always serialized.
+- when you persist the rdd in memory spark is storing the RDD is as deserailized java objects.
+- when you cache the RDD is stored into the memory and the pieces that don't fit into the memory will be dropped will not be stored in the disk. However when the dropped RDD is required those pieces are recomputed from the underlying data source or an eariler RDD that you have cached in the DAG.
+- If you cache an very big RDD then all the eariler RDD will removed from memory and 50 or so percent of this RDD might be cached. LRU (least recently used) cache.
+- If a executor crashes the cached RDD in the JVM is lost but spark will not right way know what parts of the cached RDD are lost because it uses lazy evalution, but when required it goes back and recomputes the transformations from the underlying data source when required.
+- When caching you can also say how many replicas you want to cache. In general you want a replication factor of 1 only. This is not like HDFS where you want to have multiple replicas of the same blocks of data. Just trust the recompute engine of spark to recreate the lost partition.
+- A replication factor of more than 1 is needed only when the RDD is extermely important, for example when it takes a lot of compute to recreate a lost partition of the RDD because of a large dependencies on the previous RDDs.
+** Persisting
+- If RDD filts in memory. choose MEMORY_ONLY
+- IF not, use MEMORY_ONLY_SER with fast serialization library.
+- Don't spill to disk unless function that computed the datasets are very expensive or they filter a large amount of data. (recomputing may be as fast as reading from the disk).
+- Use replicated storage levels sparingly and only if you want fast fault recovery (may be to serve requrests form a web app)
+- Intermediate data is automatically persisted during shuffle operations. So next time if you call an action on the same RDD spark might walk back the DAG and start from this persisted data which was actually persisted during a previous shuffle operation.
+* Other integrations into Spark
+** Tachyon
+- Theoritical particle faster than light.
+- OFF_HEAP in-memory storage in for spark.
+- The RDD will stored off heap in a searilized format which will reduce the garbage collection overhead in the JVM.
+- Also if you store inside tachyon the RDD will still be available even if the executor JVM crashes and restarts.
+- COOL THING: you write a scala ETL job and persist the data into tachyon and pick it up with a pyspark job and do something put it back into tachyon and pick it up with JAVA to do something else. This can be like the go between spark programming languages.
+- It runs outside the executor process and hopefully in every node.
+- Might be relativily slower because the RDD is not in the JVM, but relativily fast because it is not the RDD is still in memory and coming from an SSD or something even slower.
+  - 
+* Language Specific Details
+** Pyspark
+- stored objects will always be serialized with pickle library. so it does not matter whether you choose a serialized level. 
+* Common issues.
+** Memory Errors.
+- Default memory allocation in spark
+  - Cached RDDs (60% spark.storage.memoryFraction)
+    - when you call .persist() or .cache(). Spark will limit the amount of memory used when caching to a certain fraction of the JVMs overall heap set by spark.storage.memoryFraction.
+    - If you are not caching any RDDs you can reduce this to 10 or 20 percent. However it is good to always cache RDDs in memory.
+  - Shuffle Memory (20% spark.shuffle.memoryFraction)
+    - When performing shuffle operations. Spark will create intermediate buffers for storing shuffle output data. THese buffers are used to store intermediate results and aggreations in addition to buffering data that is going to be directly output as part of the shuffle.
+  - User Programs (20% remainder)
+    - Spark executes arbitrary user code. So user functions can themselves require substantial memory. For instance, if ause applicaition allocates large arrays or other objects, these will content for overall memory usage. User code has access to everything "left" in the JVM heap after the space for RDD storage and shuflle storage are allocated.
+- Executor JVM crashing with memory errors
+  - Error will be in one of logs where the linux kernel says it killed something because it is using up more memory than it is permitted.
+  - Findout which one of the above 3 is causing the issue. (user programs or shuffle memory mostly).
+    - user memory: there is no way you can set this in spark. One thing you can do is to reduce the spark storage memory fraction and spark shuffle memory fraction.
+    - shuffle memory error: if an error happens during a shuffle then it is most likely a shuffle memory error. Try increasing the spark.shuffle.memoryFraction.
+    - 
