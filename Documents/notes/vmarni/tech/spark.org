@@ -605,8 +605,20 @@ This where multiple child partitions may depended on single parent RDD.Recomputi
   - reduceByKey
   - combineByKey
   - lookup
-*** Next Gen Shuffle
-
+*** sorting
+**** why is it important
+- stresses shuffle which underpins everything from sql to mllib
+- sorting is challenging because there is no reduction in data.
+- sort 100 TB = 500 TB disk I/O and 200 TB over the network.
+**** engineering investment in spark
+- sort based shuffle (spark-2045)
+- netty native network transport (spark-2468)
+  - the old way of serving the map output files is slow. The file has to move from the local dir folder to the linux kernal buffer then to the exectuor and then to the NIC buffer then finally to the network.
+  - In the new netty native network transport (aka zero copy technique) the data is shipped directly to the NIC buffer.
+- external shuffle service (spark-3796) 
+**** Clever Application level Techniques.
+- GC and cache friendly memory layout
+- Pipelining
 ** Broadcast Variables
 - One way to avoid shuffles when doing joining 2 datasets is to take adavantage of broadcast variables.
 - When one of the 2 datasets is small enough to fit into memory inside of a single executor then it can be loaded into a hashtable in the driver JVM and broadcast to  every executor and then the map transformation can be referenced to the hash table to the lookups.
