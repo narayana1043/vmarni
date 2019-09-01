@@ -631,6 +631,37 @@ This where multiple child partitions may depended on single parent RDD.Recomputi
 - count events that occur during job execution for debugging purposes. Ex: how many lines of the input file were blank? Or how many corrupt records were in the input dataset?
 - these are only variables that only be added using associative operations.
 - only the driver program can read the accumulator value. The executors don't know the global value of the executors.
+** Streaming
+- Can handle Gigabytes of data per second. It is a scala, java and python API.
+- Read data from
+  - TCP sockets
+  - Kafka
+  - Flume
+  - HDFS
+  - S3
+  - Kinesis
+  - Twitter
+- Processes the data
+  - map
+  - reduce
+  - join
+  - MLlib + Graphx
+  - SQL
+- write the results to
+  - HDFS
+  - Cassandra
+  - Dashboards
+  - Dat abases
+- scales to 100s of nodes
+- batch sizes as small as half a second.
+  - when data comes in make an RDD every 1/2 a second. 
+- Processing latency as low as 1 second.
+  - The RDDs made once the data comes in have to be processed(run a DAG on the RDD). The processing latency is as low as 1 second, this should always be less than the batch latency in which the RDDs are created because if the RDDs are created at a faster pace then spark actually process or you will begin to start behind.
+- How this works is
+  - there is a input data stream that is pushing data into spark streaming which will then make an RDD at a batch interval which cann't be lower then 1/2(500 millisecond level) a second. With spark you can't go down to 10 or 20 millisecond level. This covers 90-95% of the use cases. There are very specific use cases (high frequency trading) where you might want to go down to 10 or 20 millisecond level.
+  - These RDDs are then pushed into the spark core. A DAG gets applied to them and the output RDDs are then written to cassandra or whatever.
+  - The input streams are called Dstreams.
+
 * Common issues.
 ** Memory Errors.
 - Default memory allocation in spark
