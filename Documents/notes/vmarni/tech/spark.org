@@ -459,7 +459,166 @@ If you have a 100 node cluster start 100 executors so that you won't run into da
   - 
 * Language Specific Details
 ** Pyspark
-- stored objects will always be serialized with pickle library. so it does not matter whether you choose a serialized level. 
+*** Things to know
+- The pyspark api is based regular C python. It's not jython. The C python interpertor is a regular unmodified python interpretor. This means that all the python libraries are available in python are also availble in pyspark (eg. numpy, nltk, etc).
+- With pyspark you can write python spark jobs through the interactive shell. Basically the python and scala interactive shells for spark are almost the same python and scala shells which are modified a little to include extra things like start the spark context job.
+- Pyspark is built on the top of java api which sits on the top of spark core engine which is the scala api.
+- stored objects will always be serialized with pickle library. so it does not matter whether you choose a serialized level.
+- spark.python.worker.memory 512m default. The python process by default will get this amount of memory change this if you want to increase or decrease the memory.
+*** Pysaprk Architecture
+- when you start the pyspark shell you get the spark context controller object. This is not the spark context that you see in the java or scala api. This is more like a controller for the jvm based spark context.
+- when you start the pyspark RPEL, pyspark will use Py4j socket to instantiate a normal driver JVM (the actual spark context).
+- Py4j just enables the python programs running in the python interpretor to dynamically access the Java objects in a JVM. This enables to call the java objects from your python code as if they were python methods.
+- The actual spark context (driver jvm) will trigger to start the exeexecutor jvms.
+- Each executor jvms will then launch deamon.py process which will then start x(num-cores # of process for executor JVM) python process.
+- The pipe (custom pipe written by spark engineers) between the executor JVM and the python process is a highthrougput pipe and Py4j because it has to move a lot data between the JVM and the python process. But Py4j was appropriate for the short command structures act as communication module bwtween the python RPEL and driver JVM due to its low latency.
+- If there is some map reduce written in python then the user code has to be shipped from the driver to the executors to the actual python processes and along with the RDD partition the code is supposed to work on.
+- Data
+  - you can read the data directly into the python processes. The problem here is pyspark have to rewrite a lot of IO code to read data from different databases etc. so the below is what got implemented.
+  - Pyspark reads directly the executor JVMs and the executor JVMs read  data from anywhere using the existing IO code.
+- Spark will pickle the code in the RPEL and will send the pickled object into the driver JVM using Py4j and shipped into the executor JVMs over network and then shipped into the python processes along with the RDD partition where the code in unpickled and works on the RDD to perform the RDD transformations. The resulting RDD partition will be shipped back to the executor JVMs or in the case of pipelining it stays within the python processes. (pycloud pickle module is used for picking)
+- There will always be some slow down in pyspark compared to its scala or java code due to the overhead which is caused by
+  - moving the things (data and code) to and fro between the python process
+  - starting and stopping the python processes.
+  - python (dynamically typed) is itself slow compared to scala and java (both are statically typed languages). Dynamically typed languages are generally slower than staticly typed language.
+- User code written in pyspark will does run natively in python process ids. However anything you do with DataFrame, Spark SQL, MLlib, Shuffle will run at native JVM speeds inside the executors.
+- When we do a colllect on the RDD the data is sent from the python processes to the executor JVMs and then to the driver JVMs from where it is written to the disk instead of sending to the python RPEL using the py4j. The RPEL will then read the data from the local disk. Py4j is slow because it has to encode in base64 which is slow.
+*** Speed Increase
+- You can choose your python implememtation. By default spark uses C python which is the python that we get from python.org
+  - cpython converts your python code into byte code transperantly and evaluates the byte in a evalution loop and compiles.
+- To get a huge speed increase you can swtich the interpreter to pypy.
+  - Uses JIT (just in time compilcation) which is significantly faster.
+  - Uses less memory
+  - Has CFFI (see forgien fucntion interface for python) support. The goal here is to provide a convienent and reliable way to call compiled C code from pypy.
+- How do we switch to PYPY
+  - When starting the driver you can choose the interpretor for driver and separately for the executor machine python process ids.
+  - If you are using spark submit still we can say which interpertor you want on the driver side and on the worker side.
+    - PYSPARK_DRIVER_PYTHON=pypy
+    - PYSPARK_PYTHON=pypy
+  - pypy might always be the best but in general if you are not bringing in your own C code then it should still be able to provide a huge speed increase.
+  
+| job       | CPython 2.7 | PyPy 2.3.1 | Speed up |
+|-----------+-------------+------------+----------|
+| WordCount | 41s         | 15s        |     2.7x |
+| Sort      | 46s         | 44s        |    1.05x |
+| Stats     | 174s        | 3.6s       |      48x |
+more [[https://github.com/apache/spark/pull/2144][here]] about the benchmark above
+
+* Short Topics
+** Serialization
+Used when
+- Transferring data over the network
+- Spilling data to disk
+- Caching to memory serialized
+- Broadcasting variables
+
+| java serialization                                                                                | kryo serialization                                                     |
+|---------------------------------------------------------------------------------------------------+------------------------------------------------------------------------|
+| uses java's ObjectOutputStream framework                                                          | Recommend serialization for production apps                            |
+| works with any class you create that implements java.io.Serializable                              | Use Kyro version 2 for speedy serialization (10x) and more compactness |
+| You can control the performance of serialization more closely by extending java.io.Externalizable | Requires you to register the classes you'll use in advance             |
+| Leads to large serilalized formats for many classes                                               | If set, will be used for serailizaing shuffle data between nodes and data serializing RDDs to disk |
+
+By default spark uses java serialization which is very slow. The reason that spark doesnot use kyro serialization by default is because certain custom classes are not automatically serializable using kyro serialization.
+** Churn
+*** High Churn
+- This happens when you start caching all the RDDs or caching without a care in your JVM heap. Since you are caching all the RDDs, eventually spark will start triggering GC which becomes an overhead.
+- The JVM is trying to evict old objects to make room for new one. The thing to remember here is the cost of garbage collection is proportional to the number of Java Objects. So a right choice of data structure can be helpful to lower the cost of garbage collection.
+- ex: using array of ints instead of an linked list is very helpful.
+*** Low Churn
+Caching only the RDDs that are required. Good practice.
+** Garbage Collection
+*** Parallel GC
+- don't use for spark streaming. The GC pauses are unacceptable
+- uses multiple threads to do young gen GC
+- default on single thread machines
+- Aka "throughput collector"
+- Good for when a lot of work is needed and long pauses are acceptable
+- Use cases: batch processing
+*** Parallel Old GC
+- don't use for spark streaming. The GC pauses are unacceptable
+- Uses multiple threads to do both young gen and old gen GC
+- Also a multithreading compacting collector
+- HotSpot does compaction only in old gen
+*** CMS GC 
+- good with spark streaming
+- Concurrent Mark Sweep aka "Concurrent low pause collector"
+- Tries to minimize pauses due to GC by doing most of the work concurrently with application threads.
+*** G1 GC
+- good with spark streaming
+- available starting Java7
+- Desinged to be a long term replacement for CMS
+- Is a parallel, concurrent and incrementallyy compacting low-pause GC
+** Jobs - Stages - Tasks 
+If you call an action on one of RDDs at the end of your DAG. 
+- The action will trigger a job to Run. 
+- The job will be made up of stages.
+  - sometimes the stages will run in parallel and sometimes they won't.
+- The stage will contain multiple tasks.
+  - the tasks will almost all the time run in parallel
+  - each task is reading a partition of the RDD and doing some processing on the items inside the RDD and emiting a new child partition out.
+- DAG Scheduler
+  - spark keeps building a DAG based on the different transformations the RDD has gone through.
+  - when an action is called spark the driver JVM will figure how to carve out the DAG into stage boundaries.
+    - may be from 200 RDD lineage graph may it will come up with 15 stage boundaries.
+    - splits the graph into stages of tasks
+  - The DAG scheduler then submits each stage to the Task scheduler.
+  - For the stages that can be processed parallely the DAG scheduler submits the stages in parallel, but the next stages that depended these stages will have to wait for all the stages that are being processed parallely to complete as they are dependent on all of them.
+    - The developer has little bit control on in which the stage the tasks are schduled by moving the business logic around.
+- Task Scheduler
+  - The task scheduler launches individual tasks
+  - retries the failed or straggling tasks.
+  - It takes a stage at a time and looks at the tasks inside and starts sending the tasks to executors.
+  - When it is done with a stage it will tell the DAG schedular and the DAG scheduler will decide to give the task scheduler a new task or more stages that can be run in parallel.
+- Checkout this talk([[https://www.youtube.com/watch?v=49Hr5xZyTEA][spark internals]]) by Matei Zahari
+** Lineage
+- The RDD graph has lineage. There is child RDD and there is one or more parent RDDs. One of the challenges is providing RDDs as an abstraction is choosing a representation for them that can track lineage across a wide range of transformations. The most interesting question in designing this interface is how to represent dependencies between RDDs.
+- To display the lineage of an RDD, spark provides a toDebugString method.
+*** Narrow dependencies
+This where each partition of the parent RDD is used by atmost one child RDD.
+- map
+- union
+- filter
+- join with inputs co-partitioned
+*** Wide dependencies
+This where multiple child partitions may depended on single parent RDD.Recomputing a dropped partition might require recomputing many of the previous partitions and it gets costly. Therefore it is a good idea to cache this RDDs to memory and disk.
+- groupByKey
+- join with inputs not co-partitioned
+** Shuffle
+*** Transformation and shuffles
+- How do you know id a shuffle will be called on Transformation?
+  - repartition, join, cogroup, and any of the *By or *ByKey transformations can result in shuffles.
+  - If you declare a numPartitions parameter. It'll probably shuffle.
+  - If a transformation constructs a shuffleRDD. It'll probably shuffle.
+  - combineByKey calls a shuffle (so do other transformations like groupByKey, which actually endup calling combineByKey)
+  - repartition calls a coalese which by default won't shuffle but can by setting the parameter shuffle=True. Generally used when the partitions are lopsided. 
+*** Perserve Partitioning
+- In the case of key value pair RDD where the lambda functions are not messing with the keys, you can have the child RDDs retain the parent partitioning.
+- You have to pass in an extra parameter called perservePartitioning=True for this, because spark doesn't know what going on inside the lambda functions.
+- Opertaions that benefit from partitioning:
+  - cogroup
+  - groupWith
+  - join
+  - leftOuterJoin
+  - rightOuterJoin
+  - groupByKey
+  - reduceByKey
+  - combineByKey
+  - lookup
+*** Next Gen Shuffle
+
+** Broadcast Variables
+- One way to avoid shuffles when doing joining 2 datasets is to take adavantage of broadcast variables.
+- When one of the 2 datasets is small enough to fit into memory inside of a single executor then it can be loaded into a hashtable in the driver JVM and broadcast to  every executor and then the map transformation can be referenced to the hash table to the lookups.
+- They send large read only lookup table to all the nodes or send a large feature vector in a ML algorithm to all nodes.
+- They let the programmer keep a ready only variable cached on each machine rather than shipping a copy of it with tasks
+- Spark also attempts to distribute broadcast variables using efficient broadcast algorithms to reduce communication cost.
+  - http (old broadcast mechanism). The driver is send the entire file to every executor, which cause a bottle neck condition on the executor.
+  - bit-torrent (new mechanism). In this case the executors are also sharing the chunks that are available in the other executors.
+** Accumulators
+- count events that occur during job execution for debugging purposes. Ex: how many lines of the input file were blank? Or how many corrupt records were in the input dataset?
+- these are only variables that only be added using associative operations.
+- only the driver program can read the accumulator value. The executors don't know the global value of the executors.
 * Common issues.
 ** Memory Errors.
 - Default memory allocation in spark
@@ -476,3 +635,5 @@ If you have a 100 node cluster start 100 executors so that you won't run into da
     - user memory: there is no way you can set this in spark. One thing you can do is to reduce the spark storage memory fraction and spark shuffle memory fraction.
     - shuffle memory error: if an error happens during a shuffle then it is most likely a shuffle memory error. Try increasing the spark.shuffle.memoryFraction.
     - 
+* sources
+- Advanced Apache Spark Training By Sameer Farooqui.[[https://www.youtube.com/watch?v=7ooZ4S7Ay6Y][youtubeLink]]
