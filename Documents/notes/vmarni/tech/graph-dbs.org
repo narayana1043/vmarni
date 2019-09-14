@@ -209,9 +209,10 @@ ConfiguredGraphFactory.createConfiguration(new MapConfiguration(map));
 - bulkloading strategies
   - todo
 
-** Indexing 
+** Indexing
+[[https://docs.janusgraph.org/basics/index-performance/]]
 *** understanding indexes [[https://github.com/JanusGraph/janusgraph/wiki/Indexing][here]]
-*** creating indexes [[https://docs.janusgraph.org/latest/indexes.html][chapter 11]]
+*** creating indexes
 Most graphs start their operations from a list of vertices or edges that are identified by their properties. Supports 2 different types of indexes
 - graph index
   - make global retervial operations efficient on large graphs
